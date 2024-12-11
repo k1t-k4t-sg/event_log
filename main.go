@@ -5,16 +5,26 @@
 package main
 
 import (
-	"fmt"
+	//"fmt"
 	"log"
 	"io/ioutil"
 	//"errors"
 	"net/http"
     "time"
+	"os"
 )
 
+/*
+	xType := fmt.Sprintf("%T", resp)
+	fmt.Println(xType)
+
+*/
+
 func main(){
-	CheckingStatus("http://login:pass@192.168.1.249:27027/cgi-bin/sip_cgi?action=regstatus", 5)
+	for{
+		time.Sleep(5 * time.Second)
+		CheckingStatus(os.Getenv("REM_IP")+"/cgi-bin/sip_cgi?action=regstatus", 1)
+	}
 }
 
 /*
@@ -36,8 +46,10 @@ func CheckingStatus(ip string, timeout time.Duration) {
 
     resp, err := client.Do(r)
 	if err != nil {
-		log.Fatalln(err, "timeout")
+		StatusTimeout(err)
+		return
 	}
+
     _, err = ioutil.ReadAll(resp.Body)
 
 	/*
@@ -47,19 +59,17 @@ func CheckingStatus(ip string, timeout time.Duration) {
         log.Fatalln(err, "ioutil.ReadAll(resp.Body) Ошибка чтения body")
     }
 
-	switch resp.Status {
-		// Succes
-		case "200 OK":
-			fmt.Println(resp.Status, "Succes")
-		// 401 Unauthorized - неверная авторизация для проверки статуса
-		case "401 Unauthorized":
-			fmt.Println(resp.Status)
-		// 404 Site or Page Not Found - указанная страница не существует
-		case "404 Site or Page Not Found":
-			fmt.Println(resp.Status)
-		// 400 Bad Request - Неверный переданный запрос
-		case "400 Bad Request":
-			fmt.Println(resp.Status)
+	switch resp.StatusCode {
+		case 200:
+			Status200(resp)
+		case 401:
+			Status401(resp)
+		case 404:
+			Status404(resp)
+		case 400:
+			Status400(resp)
+		default:
+			StatusNotDefined(resp)
     }
 }
 
@@ -89,18 +99,67 @@ func CheckingStatus(ip string, timeout time.Duration) {
 
 
 
-func StatusTimeout(){
-
+func StatusTimeout(err error){
+	log.Println(LevelLog("E"), "Заданный узел не ответил в течении заданного {{timeout_second_request}}")
+	log.Println(LevelLog("E"), err)
+	return
 }
-func Status401(){
-
+func Status200(resp *http.Response){
+	log.Println(
+		LevelLog("I"),
+		resp.Request.Host,
+		resp.Status,
+		"Succes",
+	)
 }
-func Status404(){
-
+func Status401(resp *http.Response){
+	log.Println(
+		LevelLog("W"),
+		resp.Request.Host,
+		resp.Status,
+		"401 Unauthorized - неверная авторизация для проверки статуса",
+	)
 }
-func Status400(){
-
+func Status404(resp *http.Response){
+	log.Println(
+		LevelLog("W"),
+		resp.Request.Host,
+		resp.Status, 
+		"404 Site or Page Not Found - указанная страница не существует",
+	)
 }
-func StatusNotDefined(){
-	
+func Status400(resp *http.Response){
+	log.Println(
+		LevelLog("W"), 
+		resp.Request.Host, 
+		resp.Status, 
+		"400 Bad Request - Неверный переданный запрос",
+	)
+}
+func StatusNotDefined(resp *http.Response){
+	log.Println(
+		LevelLog("W"), 
+		resp.Request.Host, 
+		resp.Status, 
+		"StatusNotDefined() - Обработка исключения",
+	)
+}
+
+func LevelLog(level string) string {
+	switch level {
+		case "F":
+			return "<	/FATAL >"
+		case "E":
+			return "<	/ERROR >"
+		case "W":
+			return "< /WARNING >"
+		case "I":
+			return "<	 /INFO >"
+		case "D":
+			return "<	/DEBUG >"
+		case "T":
+			return "<	/TRACE >"
+		default:
+			return ""
+	}
 }
