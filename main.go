@@ -13,6 +13,8 @@ import (
     "time"
 	"os"
 	"strings"
+	"encoding/json"
+	"regexp"
 )
 
 /*
@@ -20,6 +22,10 @@ import (
 	fmt.Println(xType)
 
 */
+var DEVICES_OBJ map[string]Devices
+
+var matched_vendor	= regexp.MustCompile(`Beward`)
+var matched_url		= regexp.MustCompile(`(http|s)(:\/\/)(\w*)(:)(\w*@)(([0-9]{1,3}[\.]){3}[0-9]{1,3})(:[0-9]{1,5})`)
 
 type Alert struct {
 	Addr		string
@@ -28,15 +34,34 @@ type Alert struct {
 	LogAlert 	bool
 }
 
+/*
+	Devices.json
+*/
+type Devices struct {
+	Vendor 	string `json:"Vendor"`
+	Adress 	string `json:"Adress"`
+	Url 	string `json:"URL"`
+}
+
 func main(){
+	ListDevicesInit()
+	
 	for{
-		time.Sleep(1 * time.Second)
-		CheckingStatus(os.Getenv("REM_IP")+"/cgi-bin/sip_cgi?action=regstatus", 1)
+		for _, value := range DEVICES_OBJ {
+			if	!matched_vendor.MatchString(value.Vendor) {
+				continue
+			}
+			if	!matched_url.MatchString(value.Url) {
+				continue
+			}
+			CheckingStatus(value.Url+"/cgi-bin/sip_cgi?action=regstatus", 4)
+		}
+		time.Sleep(60 * time.Second)
 	}
 }
 
 /*
-	401 Unauthorized - неверная авторизация для проверки статуса
+	Проверка статуса устройства
 */
 func CheckingStatus(ip string, timeout time.Duration) {
 
@@ -79,6 +104,41 @@ func CheckingStatus(ip string, timeout time.Duration) {
     }
 }
 
+
+/*
+	Загрузка Devices.json и преоброзование в 
+	DEVICES_OBJ map[string]Devices
+*/
+func ListDevicesInit() {
+
+	devices, err := os.Open("Devices.json")
+	if err != nil {
+		log.Fatalln(
+			LevelLog("F"),
+			"ListDevices()",
+			"Ошибка открытия файла:",
+			err)
+		return
+	}
+	defer devices.Close()
+
+	byte_devices, err := ioutil.ReadAll(devices)
+	if err != nil {
+		log.Fatalln(
+			LevelLog("F"),
+			"ioutil.ReadAll(devices) Ошибка чтения Devices.json",
+			err)
+		return
+	}
+
+	if err = json.Unmarshal(byte_devices, &DEVICES_OBJ); err != nil {
+		log.Fatalln(
+			LevelLog("F"),
+			"json.Unmarshal(byte_devices) Ошибка преоброзования в Devices struct",
+			err)
+		return
+	}
+}
 
 
 
