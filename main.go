@@ -5,7 +5,7 @@
 package main
 
 import (
-	//"fmt"
+	"fmt"
 	"log"
 	"io/ioutil"
 	//"errors"
@@ -22,16 +22,21 @@ import (
 	fmt.Println(xType)
 
 */
-var DEVICES_OBJ map[string]Devices
+var DEVICES_OBJ = map[string]Devices{}
+var STATUS_OBJ 	= map[string]Alert{}
 
 var matched_vendor	= regexp.MustCompile(`Beward`)
 var matched_url		= regexp.MustCompile(`(http|s)(:\/\/)(\w*)(:)(\w*@)(([0-9]{1,3}[\.]){3}[0-9]{1,3})(:[0-9]{1,5})`)
 
+/*
+	Зависит от Devices struct 
+*/
 type Alert struct {
-	Addr		string
-	Time 		time.Duration
+	Device		Devices
+	Time 		time.Time
 	Status		int
 	LogAlert 	bool
+	Reason		string
 }
 
 /*
@@ -44,26 +49,34 @@ type Devices struct {
 }
 
 func main(){
-	ListDevicesInit()
+	//ListDevicesInit()
 	
 	for{
-		for _, value := range DEVICES_OBJ {
+		ListDevicesInit()
+		for id, value := range DEVICES_OBJ {
 			if	!matched_vendor.MatchString(value.Vendor) {
 				continue
 			}
 			if	!matched_url.MatchString(value.Url) {
 				continue
 			}
-			CheckingStatus(value.Url+"/cgi-bin/sip_cgi?action=regstatus", 4)
+			CheckingStatus(value.Url+"/cgi-bin/sip_cgi?action=regstatus", 4, id)
 		}
-		time.Sleep(60 * time.Second)
+		fmt.Println("====================> time second")
+		
+		for _, value := range STATUS_OBJ {
+			fmt.Println(value)
+		}
+
+
+		time.Sleep(20 * time.Second)
 	}
 }
 
 /*
 	Проверка статуса устройства
 */
-func CheckingStatus(ip string, timeout time.Duration) {
+func CheckingStatus(ip string, timeout time.Duration, id string) {
 
 	/*
 		!!! Установить значение таймаута с conf.json
@@ -80,6 +93,12 @@ func CheckingStatus(ip string, timeout time.Duration) {
     resp, err := client.Do(r)
 	if err != nil {
 		StatusTimeout(err)
+		var obj_alert = Alert{Device: DEVICES_OBJ[id],
+							Time: time.Now(),
+							Status: 503,
+							LogAlert: true,
+							Reason: "Заданный узел не ответил в течении заданного {{timeout_second_request}}"}
+		RecordAlert(obj_alert, id)
 		return
 	}
 
@@ -93,14 +112,42 @@ func CheckingStatus(ip string, timeout time.Duration) {
 		case 200:
 			Status200(resp)
 			AccountReg(resp.Request.Host, string(code))
+			var obj_alert = Alert{Device: DEVICES_OBJ[id],
+				Time: time.Now(),
+				Status: 200,
+				LogAlert: false}
+			RecordAlert(obj_alert, id)
 		case 401:
 			Status401(resp)
+			var obj_alert = Alert{Device: DEVICES_OBJ[id],
+				Time: time.Now(),
+				Status: 401,
+				LogAlert: true,
+				Reason: "401 Unauthorized - неверная авторизация для проверки статуса"}
+			RecordAlert(obj_alert, id)
 		case 404:
 			Status404(resp)
+			var obj_alert = Alert{Device: DEVICES_OBJ[id],
+				Time: time.Now(),
+				Status: 404,
+				LogAlert: true,
+				Reason: "404 Site or Page Not Found - указанная страница не существует"}
+			RecordAlert(obj_alert, id)
 		case 400:
 			Status400(resp)
+			var obj_alert = Alert{Device: DEVICES_OBJ[id],
+				Time: time.Now(),
+				Status: 400,
+				LogAlert: true,
+				Reason: "400 Bad Request - Неверный переданный запрос"}
+			RecordAlert(obj_alert, id)
 		default:
 			StatusNotDefined(resp)
+			var obj_alert = Alert{Device: DEVICES_OBJ[id],
+				Time: time.Now(),
+				LogAlert: true,
+				Reason: "StatusNotDefined() - Обработка исключения"}
+			RecordAlert(obj_alert, id)
     }
 }
 
@@ -122,6 +169,12 @@ func ListDevicesInit() {
 	}
 	defer devices.Close()
 
+	stat, err := f.Stat()
+	if err != nil {
+		log.Fatalf("stat: %v", err)
+	}
+
+
 	byte_devices, err := ioutil.ReadAll(devices)
 	if err != nil {
 		log.Fatalln(
@@ -137,6 +190,25 @@ func ListDevicesInit() {
 			"json.Unmarshal(byte_devices) Ошибка преоброзования в Devices struct",
 			err)
 		return
+	}
+}
+
+/*
+	RecordAlert(Alert, id, obj_alert)
+*/
+func RecordAlert(status Alert, id string) {
+
+
+	if _ , ok := STATUS_OBJ[id]; ok {
+		if STATUS_OBJ[id].LogAlert != status.LogAlert {
+			fmt.Println("=====================> Объект восстановлен")
+			delete(STATUS_OBJ, id);
+		}
+		return
+	}
+
+	if status.LogAlert {
+		STATUS_OBJ[id] = status
 	}
 }
 
@@ -182,7 +254,6 @@ func Recovery(){
 
 	log.Println(Status, SIP, Error, Label, ScanCode, DoorCode, Lock)
 }
-
 /*
 	Проверка состояния SIP сервера
 */
