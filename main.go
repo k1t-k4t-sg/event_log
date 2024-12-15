@@ -15,6 +15,7 @@ import (
 	"strings"
 	"encoding/json"
 	"regexp"
+	"sync"
 )
 
 /*
@@ -22,6 +23,8 @@ import (
 	fmt.Println(xType)
 
 */
+var File_modification_time time.Time
+
 var DEVICES_OBJ = map[string]Devices{}
 var STATUS_OBJ 	= map[string]Alert{}
 
@@ -51,18 +54,24 @@ type Devices struct {
 func main(){
 	//ListDevicesInit()
 	
+	var wg sync.WaitGroup
+
 	for{
 		ListDevicesInit()
 		for id, value := range DEVICES_OBJ {
-			if	!matched_vendor.MatchString(value.Vendor) {
-				continue
-			}
-			if	!matched_url.MatchString(value.Url) {
-				continue
-			}
-			CheckingStatus(value.Url+"/cgi-bin/sip_cgi?action=regstatus", 4, id)
+			wg.Add(1)
+			go func () {
+				defer wg.Done()
+				if	!matched_vendor.MatchString(value.Vendor) {
+					return
+				}
+				if	!matched_url.MatchString(value.Url) {
+					return
+				}
+				CheckingStatus(value.Url+"/cgi-bin/sip_cgi?action=regstatus", 4, id)
+			}()	
 		}
-		fmt.Println("====================> time second")
+		wg.Wait()
 		
 		for _, value := range STATUS_OBJ {
 			fmt.Println(value)
@@ -169,11 +178,16 @@ func ListDevicesInit() {
 	}
 	defer devices.Close()
 
-	stat, err := f.Stat()
+	stat, err := devices.Stat()
 	if err != nil {
 		log.Fatalf("stat: %v", err)
 	}
 
+	if File_modification_time == stat.ModTime() {
+		return
+	}  
+
+	File_modification_time = stat.ModTime()
 
 	byte_devices, err := ioutil.ReadAll(devices)
 	if err != nil {
